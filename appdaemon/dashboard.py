@@ -10,6 +10,7 @@ import cProfile
 import io
 import pstats
 import datetime
+import pytz
 
 import appdaemon.utils as ha
 
@@ -78,7 +79,7 @@ class Dashboard:
         #
         # Set a start time
         #
-        self.start_time = datetime.datetime.now()
+        self.start_time = datetime.datetime.now(pytz.utc)
 
     def _timeit(func):
         @functools.wraps(func)
@@ -536,10 +537,10 @@ class Dashboard:
         return dash, layout, occupied, includes
 
     def _latest_file(self, path):
-        late_file = datetime.datetime.fromtimestamp(86400)
+        late_file = datetime.datetime.fromtimestamp(86400, pytz.utc)
         for root, subdirs, files in os.walk(path):
             for file in files:
-                mtime = datetime.datetime.fromtimestamp(os.path.getmtime(os.path.join(root, file)))
+                mtime = datetime.datetime.fromtimestamp(os.path.getmtime(os.path.join(root, file)), pytz.utc)
                 if mtime > late_file:
                     late_file = mtime
         return late_file
@@ -734,7 +735,7 @@ class Dashboard:
                     mtime = os.path.getmtime(file)
                 except OSError:
                     mtime = 86400
-                last_modified_date = datetime.datetime.fromtimestamp(mtime)
+                last_modified_date = datetime.datetime.fromtimestamp(mtime, pytz.utc)
                 if last_modified_date < last_compiled:
                     last_compiled = last_modified_date
 

@@ -253,15 +253,7 @@ class AppDaemon:
 
     @staticmethod
     def get_tz_offset():
-        utc_offset_min = int(round(
-            (datetime.datetime.now()
-             - datetime.datetime.utcnow()).total_seconds())
-        ) / 60  # round for taking time twice
-        utc_offset_h = utc_offset_min / 60
-
-        # we do not handle 1/2 h timezone offsets
-        assert utc_offset_min == utc_offset_h * 60
-        return utc_offset_min
+        return int(round(self.tz.utcoffset().total_seconds() / 60))
 
     @staticmethod
     def convert_utc(utc):
@@ -292,13 +284,13 @@ class AppDaemon:
         return self.AD.sunset()
 
     def time(self):
-        return datetime.datetime.fromtimestamp(self.get_now_ts()).time()
+        return self.datetime().time()
 
     def datetime(self):
-        return datetime.datetime.fromtimestamp(self.get_now_ts())
+        return datetime.datetime.fromtimestamp(self.get_now_ts(), self.tz)
 
     def date(self):
-        return datetime.datetime.fromtimestamp(self.get_now_ts()).date()
+        return self.datetime().date()
 
     #
     # Scheduler

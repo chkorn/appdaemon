@@ -56,7 +56,7 @@ class AppDaemon:
         self.stopping = False
         self.dashboard = None
 
-        self.now = datetime.datetime.now().timestamp()
+        self.now = datetime.datetime.now(pytz.utc)
 
         self.objects = {}
         self.objects_lock = threading.RLock()
@@ -445,14 +445,14 @@ class AppDaemon:
         self.diag("INFO", "Threads")
         self.diag("INFO", "--------------------------------------------------")
         with self.thread_info_lock:
-            max_ts = datetime.datetime.fromtimestamp(self.thread_info["max_busy_time"])
-            last_ts = datetime.datetime.fromtimestamp(self.thread_info["last_action_time"])
+            max_ts = datetime.datetime.fromtimestamp(self.thread_info["max_busy_time"], pytz.utc)
+            last_ts = datetime.datetime.fromtimestamp(self.thread_info["last_action_time"], pytz.utc)
             self.diag("INFO", "Currently busy threads: {}".format(self.thread_info["current_busy"]))
             self.diag("INFO", "Most used threads: {} at {}".format(self.thread_info["max_busy"], max_ts))
             self.diag("INFO", "Last activity: {}".format(last_ts))
             self.diag("INFO", "--------------------------------------------------")
             for thread in sorted(self.thread_info["threads"], key=self.natural_keys):
-                ts = datetime.datetime.fromtimestamp(self.thread_info["threads"][thread]["time_called"])
+                ts = datetime.datetime.fromtimestamp(self.thread_info["threads"][thread]["time_called"], pytz.utc)
                 self.diag("INFO",
                          "{} - current callback: {} since {}, alive: {}".format(
                              thread,
@@ -544,7 +544,7 @@ class AppDaemon:
                     self.diag("INFO",
                              "{} calling {} callback {}".format(thread_id, type, callback))
         with self.thread_info_lock:
-            ts = self.now
+            ts = self.get_now_ts()
             self.thread_info["threads"][thread_id]["callback"] = callback
             self.thread_info["threads"][thread_id]["time_called"] = ts
             if callback == "idle":
@@ -894,7 +894,7 @@ class AppDaemon:
             if name in self.schedule and handle in self.schedule[name]:
                 callback = self.schedule[name][handle]
                 return (
-                    datetime.datetime.fromtimestamp(callback["timestamp"]),
+                    datetime.datetime.fromtimestamp(callback["timestamp"], pytz.utc),
                     callback["interval"],
                     self.sanitize_timer_kwargs(self.objects[name]["object"], callback["kwargs"])
                 )
@@ -920,34 +920,9 @@ class AppDaemon:
         ))
 
     def update_sun(self):
-        #now = datetime.datetime.now(self.tz)
-        #now = pytz.utc.localize(self.get_now())
-
-        now = self.tz.localize(self.get_now())
-
-        mod = -1
-        while True:
-            try:
-                next_rising_dt = self.location.sunrise(
-                    (now + datetime.timedelta(days=mod)).date(), local=False
-                )
-                if next_rising_dt > now:
-                    break
-            except astral.AstralError:
-                pass
-            mod += 1
-
-        mod = -1
-        while True:
-            try:
-                next_setting_dt = self.location.sunset(
-                    (now + datetime.timedelta(days=mod)).date(), local=False
-                )
-                if next_setting_dt > now:
-                    break
-            except astral.AstralError:
-                pass
-            mod += 1
+        now = self.get_now()
+        next_rising_dt = self.location.sunrise(now, local=False)
+        next_setting_dt = self.location.sunset(now, local=False)
 
         old_next_rising_dt = self.sun.get("next_rising")
         old_next_setting_dt = self.sun.get("next_setting")
@@ -1028,18 +1003,18 @@ class AppDaemon:
         return schedule
 
     def is_dst(self):
-        return bool(time.localtime(self.get_now_ts()).tm_isdst)
+        return self.tz.localize(self.get_now()).dst()
 
     def get_now(self):
-        return datetime.datetime.fromtimestamp(self.now)
+        return self.now
 
     def get_now_ts(self):
-        return self.now
+        return self.get_now().timestamp()
 
     def now_is_between(self, start_time_str, end_time_str, name=None):
         start_time = self.parse_time(start_time_str, name)
         end_time = self.parse_time(end_time_str, name)
-        now = self.get_now()
+        now = self.tz.localize(self.get_now())
         start_date = now.replace(
             hour=start_time.hour, minute=start_time.minute,
             second=start_time.second
@@ -1055,10 +1030,10 @@ class AppDaemon:
         return start_date <= now <= end_date
 
     def sunset(self):
-        return datetime.datetime.fromtimestamp(self.calc_sun("next_setting"))
+        return datetime.datetime.fromtimestamp(self.calc_sun("next_setting"), pytz.utc)
 
     def sunrise(self):
-        return datetime.datetime.fromtimestamp(self.calc_sun("next_rising"))
+        return datetime.datetime.fromtimestamp(self.calc_sun("next_rising"), pytz.utc)
 
     def parse_time(self, time_str, name=None):
         parsed_time = None
@@ -1149,11 +1124,11 @@ class AppDaemon:
         # but lets reset it at the start of the timer loop to avoid an initial clock skew
         #
         if self.starttime:
-            self.now = datetime.datetime.strptime(self.starttime, "%Y-%m-%d %H:%M:%S").timestamp()
+            self.now = self.tz.localize(datetime.datetime.strptime(self.starttime, "%Y-%m-%d %H:%M:%S")).astimezone(pytz.utc)
         else:
-            self.now = datetime.datetime.now().timestamp()
+            self.now = datetime.datetime.now(pytz.utc)
 
-        t = math.floor(self.now)
+        t = math.floor(self.get_now_ts())
         count = 0
         t_ = math.floor(time.time())
         while not self.stopping:
@@ -1176,7 +1151,7 @@ class AppDaemon:
 
     async def do_every_tick(self, utc):
         try:
-            start_time = datetime.datetime.now().timestamp()
+            start_time = datetime.datetime.now(pytz.utc).timestamp()
             self.now = utc
 
             # If we have reached endtime bail out
@@ -1192,7 +1167,7 @@ class AppDaemon:
                     self.stop()
 
             if self.realtime:
-                real_now = datetime.datetime.now().timestamp()
+                real_now = datetime.datetime.now(pytz.utc).timestamp()
                 delta = abs(utc - real_now)
                 if delta > self.max_clock_skew:
                     self.log("WARNING",
@@ -1244,7 +1219,7 @@ class AppDaemon:
                     if v == {}:
                         del self.schedule[k]
 
-            end_time = datetime.datetime.now().timestamp()
+            end_time = datetime.datetime.now(pytz.utc).timestamp()
 
             loop_duration = (int((end_time - start_time) * 1000) / 1000) * 1000
             self.log("DEBUG", "Scheduler loop compute time: {}ms".format(loop_duration))
@@ -1290,7 +1265,7 @@ class AppDaemon:
     async def notify_plugin_started(self, namespace, first_time=False):
 
         try:
-            self.last_plugin_state[namespace] = datetime.datetime.now()
+            self.last_plugin_state[namespace] = datetime.datetime.now(pytz.utc)
 
             meta = await self.plugin_objs[namespace].get_metadata()
             self.process_meta(meta, namespace)
@@ -1363,15 +1338,15 @@ class AppDaemon:
             #
 
             if self.starttime:
-                new_now = datetime.datetime.strptime(self.starttime, "%Y-%m-%d %H:%M:%S")
+                new_now = self.tz.localize(datetime.datetime.strptime(self.starttime, "%Y-%m-%d %H:%M:%S")).astimezone(pytz.utc)
                 self.log("INFO", "Starting time travel ...")
                 self.log("INFO", "Setting clocks to {}".format(new_now))
-                self.now = new_now.timestamp()
+                self.now = new_now
             else:
-                self.now = datetime.datetime.now().timestamp()
+                self.now = datetime.datetime.now(pytz.utc)
 
             self.thread_info["max_used"] = 0
-            self.thread_info["max_used_time"] = self.now
+            self.thread_info["max_used_time"] = self.get_now_ts()
 
             # Take a note of DST
 
@@ -1402,7 +1377,7 @@ class AppDaemon:
 
             while not self.stopping:
 
-                start_time = datetime.datetime.now().timestamp()
+                start_time = datetime.datetime.now(pytz.utc).timestamp()
 
                 try:
 
@@ -1419,7 +1394,7 @@ class AppDaemon:
 
                     for plugin in self.plugin_objs:
                         if self.plugin_objs[plugin].active():
-                            if  datetime.datetime.now() - self.last_plugin_state[plugin] > datetime.timedelta(
+                            if  datetime.datetime.now(pytz.utc) - self.last_plugin_state[plugin] > datetime.timedelta(
                             minutes=10):
                                 try:
                                     self.log("DEBUG",
@@ -1430,7 +1405,7 @@ class AppDaemon:
                                     with self.state_lock:
                                         self.state[plugin] = state
 
-                                    self.last_plugin_state[plugin] = datetime.datetime.now()
+                                    self.last_plugin_state[plugin] = datetime.datetime.now(pytz.utc)
                                 except:
                                     self.log("WARNING",
                                           "Unexpected error refreshing {} state - retrying in 10 minutes".format(plugin))
@@ -1462,7 +1437,7 @@ class AppDaemon:
                             "Logged an error to {}".format(self.errfile)
                         )
 
-                end_time = datetime.datetime.now().timestamp()
+                end_time = datetime.datetime.now(pytz.utc).timestamp()
 
                 loop_duration = (int((end_time - start_time) * 1000) / 1000) * 1000
 
