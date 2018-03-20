@@ -253,7 +253,7 @@ class AppDaemon:
 
     @staticmethod
     def get_tz_offset():
-        return int(round(self.tz.utcoffset().total_seconds() / 60))
+        return int(round(self.AD.tz.utcoffset().total_seconds() / 60))
 
     @staticmethod
     def convert_utc(utc):
@@ -283,11 +283,11 @@ class AppDaemon:
     def sunset(self):
         return self.AD.sunset()
 
+    def datetime(self):
+        return self.AD.get_now().astimezone(self.AD.tz)
+
     def time(self):
         return self.datetime().time()
-
-    def datetime(self):
-        return datetime.datetime.fromtimestamp(self.get_now_ts(), self.tz)
 
     def date(self):
         return self.datetime().date()
