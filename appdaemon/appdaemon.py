@@ -1003,7 +1003,11 @@ class AppDaemon:
         return schedule
 
     def is_dst(self):
-        return self.tz.localize(self.get_now()).dst()
+        # XXX: this shouldn't happen
+        if self.tz is None:
+            return False
+
+        return self.get_now().astimezone(self.tz).dst() != datetime.timedelta(0)
 
     def get_now(self):
         return self.now
@@ -1014,7 +1018,7 @@ class AppDaemon:
     def now_is_between(self, start_time_str, end_time_str, name=None):
         start_time = self.parse_time(start_time_str, name)
         end_time = self.parse_time(end_time_str, name)
-        now = self.tz.localize(self.get_now())
+        now = self.get_now().astimezone(self.tz)
         start_date = now.replace(
             hour=start_time.hour, minute=start_time.minute,
             second=start_time.second
@@ -1152,7 +1156,7 @@ class AppDaemon:
     async def do_every_tick(self, utc):
         try:
             start_time = datetime.datetime.now(pytz.utc).timestamp()
-            self.now = utc
+            self.now = datetime.datetime.fromtimestamp(utc, pytz.utc)
 
             # If we have reached endtime bail out
 
